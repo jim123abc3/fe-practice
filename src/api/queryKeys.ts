@@ -1,4 +1,4 @@
-import { type ItemFilters } from "@/pages/api/items";
+import { type ItemFilters } from "@/api/items";
 
 export const itemKeys = {
   all: ["items"] as const,
