@@ -1,6 +1,14 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { ALL_ITEMS, type Item } from "@/mocks/data";
 
+export interface ItemFilters {
+  q?: string;
+  category?: string;
+  sort?: "relevance" | "price_asc" | "price_desc" | "newest";
+  cursor?: number;
+  limit?: number;
+}
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export interface ItemsPage {
@@ -55,4 +63,20 @@ export default async function handler(
 
   res.setHeader("Cache-Control", "no-store");
   res.status(200).json({ items, nextCursor, prevCursor, total: rows.length });
+}
+
+export async function fetchItems(
+  params: ItemFilters,
+  signal?: AbortSignal,
+): Promise<ItemsPage> {
+  const search = new URLSearchParams();
+  if (params.q) search.set("q", params.q);
+  if (params.category) search.set("category", params.category);
+  if (params.sort) search.set("sort", params.sort);
+  if (params.cursor != null) search.set("cursor", String(params.cursor));
+  if (params.limit != null) search.set("limit", String(params.limit));
+
+  const res = await fetch(`/api/items?${search.toString()}`, { signal });
+  if (!res.ok) throw new Error(`fetchItems failed: ${res.status}`);
+  return res.json();
 }
