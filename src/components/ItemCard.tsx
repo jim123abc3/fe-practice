@@ -1,22 +1,25 @@
 import { Card, CardContent, CardMedia, Typography } from "@mui/material";
 import type { Item } from "@/mocks/data";
+import { memo } from "react";
 
 interface ItemCardProps {
   item: Item;
   onSelect: (id: string) => void;
 }
 
-export function ItemCard({ item, onSelect }: ItemCardProps) {
+const cardSx = {
+  cursor: "pointer",
+  height: "100%",
+  display: "flex",
+  flexDirection: "column",
+} as const;
+
+export const ItemCard = memo(function ItemCard({
+  item,
+  onSelect,
+}: ItemCardProps) {
   return (
-    <Card
-      onClick={() => onSelect(item.id)}
-      sx={{
-        cursor: "pointer",
-        height: "100%",
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
+    <Card onClick={() => onSelect(item.id)} sx={cardSx}>
       <CardMedia
         component="img"
         height={220}
@@ -37,4 +40,4 @@ export function ItemCard({ item, onSelect }: ItemCardProps) {
       </CardContent>
     </Card>
   );
-}
+});
