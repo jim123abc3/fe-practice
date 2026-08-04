@@ -1,11 +1,16 @@
 import { Profiler, useCallback, useEffect, useMemo, useRef } from "react";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import {
+  InfiniteData,
+  useInfiniteQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { Box, CircularProgress, Alert, TextField } from "@mui/material";
 import { fetchItems } from "@/api/items";
 import { itemKeys } from "@/api/queryKeys";
 import { ItemCard } from "@/components/ItemCard";
 import { FiltersContextProvider, useFilters } from "@/context/FiltersContext";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { useRouter } from "next/router";
 
 const ROW_HEIGHT = 340;
 const PAGE_SIZE = 20;
@@ -14,6 +19,11 @@ const PREFETCH_THRESHOLD = 5;
 function MarketplaceGrid() {
   const { q, setQ } = useFilters();
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const hasRehydrated = useRef(false);
+  const hasRestoredScroll = useRef(false);
 
   const {
     data,
@@ -29,22 +39,44 @@ function MarketplaceGrid() {
     initialPageParam: 0,
     getNextPageParam: (last) => last.nextCursor,
     getPreviousPageParam: (first) => first.prevCursor,
+    gcTime: 10 * 60_000,
+    staleTime: 5 * 60_000,
   });
 
-  const handleSelect = useCallback((id: string) => {
-    console.log("selected ", id);
-  }, []);
+  const handleSelect = useCallback(
+    (id: string) => {
+      router.push(`/items/${id}`);
+    },
+    [router],
+  );
 
   const items = useMemo(
     () => data?.pages.flatMap((page) => page.items) ?? [],
     [data],
   );
 
+  const initialOffsetRef = useRef<number | null>(null);
+  if (initialOffsetRef.current === null) {
+    let restored = 0;
+    if (typeof window !== "undefined") {
+      const saved = sessionStorage.getItem(`scroll:${router.asPath}`);
+      if (saved) {
+        const { index, offset } = JSON.parse(saved) as {
+          index: number;
+          offset: number;
+        };
+        restored = index * ROW_HEIGHT + offset;
+      }
+    }
+    initialOffsetRef.current = restored;
+  }
+
   const rowVirtualizer = useVirtualizer({
     count: items.length,
     getScrollElement: () => containerRef.current,
     estimateSize: () => ROW_HEIGHT,
     overscan: 5,
+    initialOffset: initialOffsetRef.current,
   });
   const virtualRows = rowVirtualizer.getVirtualItems();
 
@@ -65,6 +97,62 @@ function MarketplaceGrid() {
     isFetchingNextPage,
     fetchNextPage,
   ]);
+
+  useEffect(() => {
+    const key = `scroll:${router.asPath}`;
+    const handleRouterChangeStart = () => {
+      const firstRow = virtualRows[0];
+      if (!firstRow || !containerRef.current) return;
+      const offset = containerRef.current.scrollTop - firstRow.start;
+
+      sessionStorage.setItem(
+        key,
+        JSON.stringify({
+          pageCount: Math.max(1, Math.ceil(items.length / PAGE_SIZE)),
+          index: firstRow.index,
+          offset,
+        }),
+      );
+    };
+    router.events.on("routeChangeStart", handleRouterChangeStart);
+    return () => router.events.off("routeChangeStart", handleRouterChangeStart);
+  }, [router, virtualRows, data]);
+
+  useEffect(() => {
+    if (hasRehydrated.current) return;
+    hasRehydrated.current = true;
+
+    const saved = sessionStorage.getItem(`scroll:${router.asPath}`);
+    if (!saved) return;
+
+    const existing = queryClient.getQueryData(
+      itemKeys.lists({ q, limit: PAGE_SIZE }),
+    );
+    if (existing) return;
+
+    const { pageCount } = JSON.parse(saved) as { pageCount: number };
+    if (pageCount <= 1) return;
+
+    fetchItems({ q, limit: PAGE_SIZE * pageCount, cursor: 0 }).then((page) => {
+      queryClient.setQueryData<InfiniteData<typeof page>>(
+        itemKeys.lists({ q, limit: PAGE_SIZE }),
+        { pages: [page], pageParams: [0] },
+      );
+    });
+  }, [router.asPath, q, queryClient]);
+
+  useEffect(() => {
+    if (hasRestoredScroll.current) return;
+    const target = initialOffsetRef.current ?? 0;
+    if (target === 0) {
+      hasRestoredScroll.current = true;
+      return;
+    }
+    if (rowVirtualizer.getTotalSize() >= target) {
+      rowVirtualizer.scrollToOffset(target);
+      hasRestoredScroll.current = true;
+    }
+  }, [items.length]);
 
   return (
     <Box sx={{ p: 3 }}>
@@ -100,8 +188,6 @@ function MarketplaceGrid() {
                 return (
                   <Box
                     key={item.id}
-                    data-index={virtualRow.index}
-                    ref={rowVirtualizer.measureElement}
                     sx={{
                       position: "absolute",
                       top: 0,

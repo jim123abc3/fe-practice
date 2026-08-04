@@ -1,3 +1,4 @@
+import { Item } from "@/mocks/data";
 import type { ItemsPage } from "@/pages/api/items";
 
 export interface ItemFilters {
@@ -21,5 +22,16 @@ export async function fetchItems(
 
   const res = await fetch(`/api/items?${search.toString()}`, { signal });
   if (!res.ok) throw new Error(`fetchItems failed: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchItem(
+  id: string,
+  signal?: AbortSignal,
+): Promise<Item> {
+  const res = await fetch(`/api/items/${id}`, { signal });
+
+  if (!res.ok) throw new Error(`fetchItem failed: ${res.status}`);
+
   return res.json();
 }

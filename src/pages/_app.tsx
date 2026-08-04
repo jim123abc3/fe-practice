@@ -5,7 +5,7 @@ import { ThemeProvider, CssBaseline } from "@mui/material";
 import createEmotionCache from "@/lib/emotion";
 import { theme } from "@/theme";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { makeQueryClient } from "@/lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 
@@ -21,6 +21,15 @@ export default function App({
   emotionCache = clientSideCache,
 }: MyAppProps) {
   const [queryClient] = useState(() => makeQueryClient());
+
+  useEffect(() => {
+    if (
+      typeof window !== "undefined" &&
+      "scrollRestoration" in window.history
+    ) {
+      window.history.scrollRestoration = "manual";
+    }
+  }, []);
 
   return (
     <CacheProvider value={emotionCache}>
