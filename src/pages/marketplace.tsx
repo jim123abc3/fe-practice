@@ -1,5 +1,5 @@
-import { Profiler, useCallback, useRef } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { Profiler, useCallback, useEffect, useMemo, useRef } from "react";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { Box, CircularProgress, Alert, TextField } from "@mui/material";
 import { fetchItems } from "@/api/items";
 import { itemKeys } from "@/api/queryKeys";
@@ -7,31 +7,64 @@ import { ItemCard } from "@/components/ItemCard";
 import { FiltersContextProvider, useFilters } from "@/context/FiltersContext";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
-const ROW_HEIGHT = 340; // adjust to your actual rendered card height
+const ROW_HEIGHT = 340;
+const PAGE_SIZE = 20;
+const PREFETCH_THRESHOLD = 5;
 
 function MarketplaceGrid() {
   const { q, setQ } = useFilters();
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const { data, isLoading, isError } = useQuery({
-    queryKey: itemKeys.lists({ limit: 5000 }),
-    queryFn: ({ signal }) => fetchItems({ limit: 5000 }, signal),
+  const {
+    data,
+    isLoading,
+    isError,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
+    queryKey: itemKeys.lists({ q, limit: PAGE_SIZE }),
+    queryFn: ({ pageParam, signal }) =>
+      fetchItems({ q, limit: PAGE_SIZE, cursor: pageParam }, signal),
+    initialPageParam: 0,
+    getNextPageParam: (last) => last.nextCursor,
+    getPreviousPageParam: (first) => first.prevCursor,
   });
 
   const handleSelect = useCallback((id: string) => {
     console.log("selected ", id);
   }, []);
 
-  const filtered = data?.items.filter((item) =>
-    item.name.toLowerCase().includes(q.toLowerCase()),
+  const items = useMemo(
+    () => data?.pages.flatMap((page) => page.items) ?? [],
+    [data],
   );
 
   const rowVirtualizer = useVirtualizer({
-    count: filtered?.length ?? 0,
+    count: items.length,
     getScrollElement: () => containerRef.current,
     estimateSize: () => ROW_HEIGHT,
     overscan: 5,
   });
+  const virtualRows = rowVirtualizer.getVirtualItems();
+
+  useEffect(() => {
+    const lastRow = virtualRows[virtualRows.length - 1];
+    if (!lastRow) return;
+    if (
+      lastRow.index >= items.length - 1 - PREFETCH_THRESHOLD &&
+      hasNextPage &&
+      !isFetchingNextPage
+    ) {
+      fetchNextPage();
+    }
+  }, [
+    virtualRows,
+    items.length,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+  ]);
 
   return (
     <Box sx={{ p: 3 }}>
@@ -61,8 +94,8 @@ function MarketplaceGrid() {
                 position: "relative",
               }}
             >
-              {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                const item = filtered?.[virtualRow.index];
+              {virtualRows.map((virtualRow) => {
+                const item = items[virtualRow.index];
                 if (!item) return null;
                 return (
                   <Box
@@ -82,6 +115,21 @@ function MarketplaceGrid() {
                   </Box>
                 );
               })}
+              {isFetchingNextPage && (
+                <Box
+                  sx={{
+                    position: "absolute",
+                    top: rowVirtualizer.getTotalSize(),
+                    left: 0,
+                    right: 0,
+                    display: "flex",
+                    justifyContent: "center",
+                    py: 2,
+                  }}
+                >
+                  <CircularProgress size={24} />
+                </Box>
+              )}
             </Box>
           )}
         </Box>
