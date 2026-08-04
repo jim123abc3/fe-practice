@@ -11,6 +11,8 @@ import { ItemCard } from "@/components/ItemCard";
 import { FiltersContextProvider, useFilters } from "@/context/FiltersContext";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useRouter } from "next/router";
+import { useDebounceValue } from "@/hooks/useDebounceValue";
+import { keepPreviousData } from "@tanstack/react-query";
 
 const ROW_HEIGHT = 340;
 const PAGE_SIZE = 20;
@@ -19,11 +21,13 @@ const PREFETCH_THRESHOLD = 5;
 function MarketplaceGrid() {
   const { q, setQ } = useFilters();
   const containerRef = useRef<HTMLDivElement>(null);
+  const debouncedQuery = useDebounceValue(q);
 
   const router = useRouter();
   const queryClient = useQueryClient();
   const hasRehydrated = useRef(false);
   const hasRestoredScroll = useRef(false);
+  const didHydrateFromUrl = useRef(false);
 
   const {
     data,
@@ -32,15 +36,20 @@ function MarketplaceGrid() {
     fetchNextPage,
     hasNextPage,
     isFetchingNextPage,
+    isPlaceholderData,
   } = useInfiniteQuery({
-    queryKey: itemKeys.lists({ q, limit: PAGE_SIZE }),
+    queryKey: itemKeys.lists({ q: debouncedQuery, limit: PAGE_SIZE }),
     queryFn: ({ pageParam, signal }) =>
-      fetchItems({ q, limit: PAGE_SIZE, cursor: pageParam }, signal),
+      fetchItems(
+        { q: debouncedQuery, limit: PAGE_SIZE, cursor: pageParam },
+        signal,
+      ),
     initialPageParam: 0,
     getNextPageParam: (last) => last.nextCursor,
     getPreviousPageParam: (first) => first.prevCursor,
     gcTime: 10 * 60_000,
     staleTime: 5 * 60_000,
+    placeholderData: keepPreviousData,
   });
 
   const handleSelect = useCallback(
@@ -126,20 +135,24 @@ function MarketplaceGrid() {
     if (!saved) return;
 
     const existing = queryClient.getQueryData(
-      itemKeys.lists({ q, limit: PAGE_SIZE }),
+      itemKeys.lists({ q: debouncedQuery, limit: PAGE_SIZE }),
     );
     if (existing) return;
 
     const { pageCount } = JSON.parse(saved) as { pageCount: number };
     if (pageCount <= 1) return;
 
-    fetchItems({ q, limit: PAGE_SIZE * pageCount, cursor: 0 }).then((page) => {
+    fetchItems({
+      q: debouncedQuery,
+      limit: PAGE_SIZE * pageCount,
+      cursor: 0,
+    }).then((page) => {
       queryClient.setQueryData<InfiniteData<typeof page>>(
-        itemKeys.lists({ q, limit: PAGE_SIZE }),
+        itemKeys.lists({ q: debouncedQuery, limit: PAGE_SIZE }),
         { pages: [page], pageParams: [0] },
       );
     });
-  }, [router.asPath, q, queryClient]);
+  }, [router.asPath, debouncedQuery, queryClient]);
 
   useEffect(() => {
     if (hasRestoredScroll.current) return;
@@ -153,6 +166,35 @@ function MarketplaceGrid() {
       hasRestoredScroll.current = true;
     }
   }, [items.length]);
+
+  // Hydrate the search box from the URL once, so a shared link like
+  // /marketplace?q=jordan starts pre-filtered. On the pages router,
+  // router.query is empty until isReady, so gate on it.
+  useEffect(() => {
+    if (!router.isReady || didHydrateFromUrl.current) return;
+    didHydrateFromUrl.current = true;
+
+    const urlQ = typeof router.query.q === "string" ? router.query.q : "";
+    if (urlQ) setQ(urlQ);
+  }, [router.isReady, router.query.q, setQ]);
+
+  // Mirror the debounced term into the URL (shareable + bookmarkable).
+  // replace (not push) so typing doesn't create a history entry per keystroke.
+  // shallow so it doesn't re-run getServerSideProps.
+  useEffect(() => {
+    if (!didHydrateFromUrl.current) return; // don't clobber the URL before we've read it
+    const current = typeof router.query.q === "string" ? router.query.q : "";
+    if (current === debouncedQuery) return; // avoid redundant navigations / loops
+
+    router.replace(
+      {
+        pathname: router.pathname,
+        query: debouncedQuery ? { q: debouncedQuery } : {},
+      },
+      undefined,
+      { shallow: true },
+    );
+  }, [debouncedQuery, router]);
 
   return (
     <Box sx={{ p: 3 }}>
@@ -195,6 +237,8 @@ function MarketplaceGrid() {
                       right: 0,
                       height: ROW_HEIGHT,
                       transform: `translateY(${virtualRow.start}px)`,
+                      opacity: isPlaceholderData ? 0.5 : 1,
+                      transition: "opacity 0.2s",
                     }}
                   >
                     <ItemCard item={item} onSelect={handleSelect} />
