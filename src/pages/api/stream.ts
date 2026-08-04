@@ -13,7 +13,7 @@ export default function handler(_req: NextApiRequest, res: NextApiResponse) {
     res.write(
       `data: ${JSON.stringify({ id: item.id, priceCents: Math.max(100, item.priceCents + delta), at: Date.now() })}\n\n`,
     );
-  }, 900);
+  }, 600);
   res.on("close", () => {
     clearInterval(timer);
     res.end();

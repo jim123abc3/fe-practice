@@ -13,6 +13,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useRouter } from "next/router";
 import { useDebounceValue } from "@/hooks/useDebounceValue";
 import { keepPreviousData } from "@tanstack/react-query";
+import { useLivePrices } from "@/hooks/useLivePrices";
 
 const ROW_HEIGHT = 340;
 const PAGE_SIZE = 20;
@@ -20,6 +21,8 @@ const PREFETCH_THRESHOLD = 5;
 
 function MarketplaceGrid() {
   const { q, setQ } = useFilters();
+  useLivePrices();
+
   const containerRef = useRef<HTMLDivElement>(null);
   const debouncedQuery = useDebounceValue(q);
 
