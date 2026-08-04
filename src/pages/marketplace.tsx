@@ -5,7 +5,7 @@ import { fetchItems } from "@/api/items";
 import { itemKeys } from "@/api/queryKeys";
 import { ItemCard } from "@/components/ItemCard";
 import { FiltersContextProvider, useFilters } from "@/context/FiltersContext";
-import { useVirtualList } from "@/hooks/useVirtualList";
+import { useVirtualizer } from "@tanstack/react-virtual";
 
 const ROW_HEIGHT = 340; // adjust to your actual rendered card height
 
@@ -26,11 +26,11 @@ function MarketplaceGrid() {
     item.name.toLowerCase().includes(q.toLowerCase()),
   );
 
-  const { virtualItems, totalHeight } = useVirtualList({
-    items: filtered ?? [],
-    rowHeight: ROW_HEIGHT,
+  const rowVirtualizer = useVirtualizer({
+    count: filtered?.length ?? 0,
+    getScrollElement: () => containerRef.current,
+    estimateSize: () => ROW_HEIGHT,
     overscan: 5,
-    containerRef,
   });
 
   return (
@@ -55,21 +55,33 @@ function MarketplaceGrid() {
           {isLoading && <CircularProgress />}
           {isError && <Alert severity="error">Failed to load items</Alert>}
           {!isLoading && !isError && (
-            <Box sx={{ height: totalHeight, position: "relative" }}>
-              {virtualItems.map(({ item, offsetTop }) => (
-                <Box
-                  key={item.id}
-                  sx={{
-                    position: "absolute",
-                    top: offsetTop,
-                    left: 0,
-                    right: 0,
-                    height: ROW_HEIGHT,
-                  }}
-                >
-                  <ItemCard item={item} onSelect={handleSelect} />
-                </Box>
-              ))}
+            <Box
+              sx={{
+                height: rowVirtualizer.getTotalSize(),
+                position: "relative",
+              }}
+            >
+              {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                const item = filtered?.[virtualRow.index];
+                if (!item) return null;
+                return (
+                  <Box
+                    key={item.id}
+                    data-index={virtualRow.index}
+                    ref={rowVirtualizer.measureElement}
+                    sx={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      height: ROW_HEIGHT,
+                      transform: `translateY(${virtualRow.start}px)`,
+                    }}
+                  >
+                    <ItemCard item={item} onSelect={handleSelect} />
+                  </Box>
+                );
+              })}
             </Box>
           )}
         </Box>
